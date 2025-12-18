@@ -1,4 +1,5 @@
 [build]
 command = "cargo install trunk && trunk build --release"
-cwd = "dist"
 watch_dir = "src"
+[assets]
+directory = "./dist"
