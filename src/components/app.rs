@@ -1,13 +1,10 @@
-use leptos::__reexports::wasm_bindgen_futures::JsFuture;
-use leptos::leptos_dom::logging::console_log;
 use leptos::prelude::*;
-use leptos::task::spawn_local;
-use leptos::web_sys::js_sys::{Array, Uint8Array};
-use leptos::web_sys::{Blob, Url};
-use libflate::gzip;
 use std::collections::HashMap;
-use std::io::Write;
 use thaw::*;
+
+use crate::components::algorithm::Algorithm;
+use crate::components::compression::Compression;
+use crate::components::file_upload::FileUpload;
 
 #[component]
 fn AppTheme(children: Children) -> impl IntoView {
@@ -41,74 +38,74 @@ fn AppTheme(children: Children) -> impl IntoView {
 
 #[component]
 pub fn App() -> impl IntoView {
-    let had_compressed = RwSignal::new(false);
-    let compressed_url = RwSignal::new(String::new());
-    let compressed_file_name = RwSignal::new(String::new());
+    let uploaded_file_name = RwSignal::new(String::new());
+    let uploaded_file: RwSignal<Vec<u8>> = RwSignal::new(Vec::new());
+    let has_output = RwSignal::new(false);
+    let output_url = RwSignal::new(String::new());
+    let output_file_name = RwSignal::new(String::new());
+    let is_compress = RwSignal::new(true);
+    let algorithm = RwSignal::new(Algorithm::Deflate);
+    let is_compressing = RwSignal::new(false);
 
-    let compress = move |file_list: FileList| {
-        let file = file_list.get(0).unwrap();
-        let blob = file.slice();
-        if let Err(err) = blob {
-            console_log(&format!("{:?}", err));
-            return;
-        }
-        let blob = file.slice().unwrap();
-        spawn_local(async move {
-            let bytes = JsFuture::from(blob.bytes()).await;
-            if let Err(err) = bytes {
-                console_log(&format!("{:?}", err));
-                return;
-            }
-            let bytes = Uint8Array::new(&bytes.unwrap()).to_vec();
-            let encoder = gzip::Encoder::new(Vec::new());
-            if let Err(err) = encoder {
-                console_log(&format!("{:?}", err));
-                return;
-            }
-            let mut encoder = encoder.unwrap();
-            encoder.write_all(&bytes[..]).unwrap();
-            let compressed = encoder.finish().into_result();
-            if let Err(err) = compressed {
-                console_log(&format!("{:?}", err));
-                return;
-            }
-            let compressed: Vec<u8> = compressed.unwrap();
-            let u8_array = Uint8Array::from(compressed.as_slice());
-            let parts = Array::new();
-            parts.push(&u8_array);
-            let blob = Blob::new_with_u8_array_sequence(&parts);
-            if let Err(err) = blob {
-                console_log(&format!("{:?}", err));
-                return;
-            }
-            let blob = blob.unwrap();
-            let blob_url = Url::create_object_url_with_blob(&blob);
-            if let Err(err) = blob_url {
-                console_log(&format!("{:?}", err));
-                return;
-            }
-            let blob_url = blob_url.unwrap();
-
-            let link = document().create_element("a");
-            if let Err(err) = link {
-                console_log(&format!("{:?}", err));
-                return;
-            }
-            compressed_url.set(blob_url.clone());
-            compressed_file_name.set(format!("{}.gz", file.name()));
-            had_compressed.set(true);
-        })
-    };
     view! {
         <AppTheme>
             <div class="app">
-                <Upload custom_request=compress>
-                    <UploadDragger>"Click or drag a file to this area to upload"</UploadDragger>
-                </Upload>
-                <Show when=move || had_compressed.get()>
-                    <a href=compressed_url download=compressed_file_name>{compressed_file_name}</a>
-                </Show>
+                <span>
+                    <Link href="https://crates.io/crates/libflate">libflate</Link>" Web"
+                </span>
+                    <ButtonGroup>
+                        <Button
+                        appearance=move || { if is_compress.get() {ButtonAppearance::Primary} else {ButtonAppearance::Secondary}}
+                        disabled=move || is_compress.get()
+                        on_click=move |_| is_compress.set(true)
+                        >
+                            "Compression"
+                        </Button>
+                        <Button
+                        appearance=move || { if !is_compress.get() {ButtonAppearance::Primary} else {ButtonAppearance::Secondary}}
+                        disabled=move || !is_compress.get()
+                        on_click=move |_| is_compress.set(false)
+                        >
+                            "Decompression"
+                        </Button>
+                    </ButtonGroup>
+                    <ButtonGroup>
+                        <Button
+                            appearance=move || { if algorithm.get()==Algorithm::Deflate {ButtonAppearance::Primary} else {ButtonAppearance::Secondary}}
+                            disabled=move || algorithm.get()==Algorithm::Deflate
+                            on_click=move |_| algorithm.set(Algorithm::Deflate)
+                            >
+                            "Deflate"
+                        </Button>
+                        <Button
+                            appearance=move || { if algorithm.get()==Algorithm::Gzip {ButtonAppearance::Primary} else {ButtonAppearance::Secondary}}
+                            disabled=move || algorithm.get()==Algorithm::Gzip
+                            on_click=move |_| algorithm.set(Algorithm::Gzip)
+                            >
+                            "Gzip"
+                        </Button>
+                        <Button
+                            appearance=move || { if algorithm.get()==Algorithm::Zlib {ButtonAppearance::Primary} else {ButtonAppearance::Secondary}}
+                            disabled=move || algorithm.get()==Algorithm::Zlib
+                            on_click=move |_| algorithm.set(Algorithm::Zlib)
+                            >
+                            "Zlib"
+                        </Button>
+                    </ButtonGroup>
+                    <FileUpload uploaded_file uploaded_file_name />
+                    <Compression uploaded_file uploaded_file_name output_file_name output_url has_output is_compress algorithm is_compressing />
+                    <Show when=move || is_compressing.get()>
+                        <Spinner label="Compressing" />
+                    </Show>
+                    <Show when=move || has_output.get()>
+                        <a href=output_url download=output_file_name>{output_file_name}</a>
+                    </Show>
             </div>
+            <Link href="https://github.com/parintorn0/libflate-web" class="source">
+                <Badge size=BadgeSize::ExtraLarge>
+                <Icon icon=icondata::LuGithub class="icon" />
+                </Badge>
+            </Link>
         </AppTheme>
     }
 }
