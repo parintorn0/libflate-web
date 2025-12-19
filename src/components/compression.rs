@@ -8,89 +8,96 @@ use libflate::{
     // lz77,
     zlib,
 };
+use std::io::{Read, Write};
 use thaw::*;
 
 use crate::components::algorithm::Algorithm;
 
 fn compress(algorithm: Algorithm, uploaded_file: Vec<u8>) -> Result<Vec<u8>, bool> {
     if algorithm == Algorithm::Deflate {
-        let encoder = deflate::Encoder::new(uploaded_file);
+        let mut encoder = deflate::Encoder::new(Vec::new());
+        let _ = encoder.write_all(&uploaded_file[..]);
         let compressed = encoder.finish().into_result();
         if let Err(err) = compressed {
             console_log(&format!("{:?}", err));
             return Err(true);
         }
-        return Ok(compressed.unwrap());
+        return Ok(compressed.unwrap().into());
     } else if algorithm == Algorithm::Gzip {
-        let encoder = gzip::Encoder::new(uploaded_file);
+        let encoder = gzip::Encoder::new(Vec::new());
         if let Err(err) = encoder {
             console_log(&format!("{:?}", err));
             return Err(true);
         }
-        let encoder = encoder.unwrap();
+        let mut encoder = encoder.unwrap();
+        let _ = encoder.write_all(&uploaded_file[..]);
         let compressed = encoder.finish().into_result();
         if let Err(err) = compressed {
             console_log(&format!("{:?}", err));
             return Err(true);
         }
-        return Ok(compressed.unwrap());
+        return Ok(compressed.unwrap().into());
     } else if algorithm == Algorithm::Zlib {
-        let encoder: Result<zlib::Encoder<Vec<u8>>, std::io::Error> =
-            zlib::Encoder::new(uploaded_file);
+        let encoder = zlib::Encoder::new(Vec::new());
         if let Err(err) = encoder {
             console_log(&format!("{:?}", err));
             return Err(true);
         }
-        let encoder = encoder.unwrap();
+        let mut encoder = encoder.unwrap();
+        let _ = encoder.write_all(&uploaded_file[..]);
         let compressed = encoder.finish().into_result();
         if let Err(err) = compressed {
             console_log(&format!("{:?}", err));
             return Err(true);
         }
-        return Ok(compressed.unwrap());
+        return Ok(compressed.unwrap().into());
     } else {
         return Err(true);
     }
 }
 
 fn decompress(algorithm: Algorithm, uploaded_file: Vec<u8>) -> Result<Vec<u8>, ()> {
-    if algorithm == Algorithm::Deflate {
-        let encoder = deflate::Encoder::new(uploaded_file);
-        let compressed = encoder.finish().into_result();
-        if let Err(err) = compressed {
-            console_log(&format!("{:?}", err));
-            return Err(());
+    let mut buf = Vec::new();
+    match algorithm {
+        Algorithm::Deflate => {
+            let mut decoder = deflate::Decoder::new(&uploaded_file[..]);
+            let readed = decoder.read_to_end(&mut buf);
+            if let Err(err) = readed {
+                console_log(&format!("{:?}", err));
+                return Err(());
+            }
+            return Ok(buf.into());
         }
-        return Ok(compressed.unwrap());
-    } else if algorithm == Algorithm::Gzip {
-        let encoder = gzip::Encoder::new(uploaded_file);
-        if let Err(err) = encoder {
-            console_log(&format!("{:?}", err));
-            return Err(());
+        Algorithm::Gzip => {
+            let decoder = gzip::Decoder::new(&uploaded_file[..]);
+            if let Err(err) = decoder {
+                console_log(&format!("{:?}", err));
+                return Err(());
+            }
+            let mut decoder = decoder.unwrap();
+            let mut buf = Vec::new();
+            let readed = decoder.read_to_end(&mut buf);
+            if let Err(err) = readed {
+                console_log(&format!("{:?}", err));
+                return Err(());
+            }
+            return Ok(buf.into());
         }
-        let encoder = encoder.unwrap();
-        let compressed = encoder.finish().into_result();
-        if let Err(err) = compressed {
-            console_log(&format!("{:?}", err));
-            return Err(());
+        Algorithm::Zlib => {
+            let decoder = zlib::Decoder::new(&uploaded_file[..]);
+            if let Err(err) = decoder {
+                console_log(&format!("{:?}", err));
+                return Err(());
+            }
+            let mut decoder = decoder.unwrap();
+            let mut buf = Vec::new();
+            let readed = decoder.read_to_end(&mut buf);
+            if let Err(err) = readed {
+                console_log(&format!("{:?}", err));
+                return Err(());
+            }
+            Ok(buf.into())
         }
-        return Ok(compressed.unwrap());
-    } else if algorithm == Algorithm::Zlib {
-        let encoder: Result<zlib::Encoder<Vec<u8>>, std::io::Error> =
-            zlib::Encoder::new(uploaded_file);
-        if let Err(err) = encoder {
-            console_log(&format!("{:?}", err));
-            return Err(());
-        }
-        let encoder = encoder.unwrap();
-        let compressed = encoder.finish().into_result();
-        if let Err(err) = compressed {
-            console_log(&format!("{:?}", err));
-            return Err(());
-        }
-        return Ok(compressed.unwrap());
-    } else {
-        return Err(());
     }
 }
 
@@ -98,12 +105,12 @@ fn create_blob_url(
     is_compress: bool,
     algorithm: Algorithm,
     uploaded_file_name: String,
-    output_file: Vec<u8>,
+    output: Vec<u8>,
     output_url: RwSignal<String>,
     output_file_name: RwSignal<String>,
     has_output: RwSignal<bool>,
 ) {
-    let u8_array = Uint8Array::from(output_file.as_slice());
+    let u8_array = Uint8Array::from(output.as_slice());
     let parts = Array::new();
     parts.push(&u8_array);
     let blob = Blob::new_with_u8_array_sequence(&parts);
@@ -133,7 +140,7 @@ fn create_blob_url(
             uploaded_file_name,
             match algorithm {
                 Algorithm::Deflate => "zz",
-                Algorithm::Zlib => ".zlib",
+                Algorithm::Zlib => "zlib",
                 Algorithm::Gzip => "gz",
             }
         ));
@@ -180,12 +187,12 @@ pub fn Compression(
                     is_compressing.set(false);
                     return;
                 }
-                let output_file = compressed.unwrap();
+                let output = compressed.unwrap();
                 create_blob_url(
                     is_compress.get(),
                     algorithm.get(),
                     uploaded_file_name.get(),
-                    output_file,
+                    output,
                     output_url,
                     output_file_name,
                     has_output,
@@ -197,12 +204,12 @@ pub fn Compression(
                     is_compressing.set(false);
                     return;
                 }
-                let output_file = decompressed.unwrap();
+                let output = decompressed.unwrap();
                 create_blob_url(
                     is_compress.get(),
                     algorithm.get(),
                     uploaded_file_name.get(),
-                    output_file,
+                    output,
                     output_url,
                     output_file_name,
                     has_output,
